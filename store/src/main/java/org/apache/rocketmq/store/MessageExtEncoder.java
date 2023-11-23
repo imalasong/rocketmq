@@ -199,6 +199,8 @@ public class MessageExtEncoder {
         final int topicLength = topicData.length;
 
         final int bodyLength = msgInner.getBody() == null ? 0 : msgInner.getBody().length;
+
+        //计算消息长度
         final int msgLen = calMsgLength(
             msgInner.getVersion(), msgInner.getSysFlag(), bodyLength, topicLength, propertiesLength);
 

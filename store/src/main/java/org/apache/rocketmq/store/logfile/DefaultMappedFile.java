@@ -59,6 +59,8 @@ import sun.misc.Unsafe;
 import sun.nio.ch.DirectBuffer;
 
 public class DefaultMappedFile extends AbstractMappedFile {
+
+    //操作系统每页大小,默认4K
     public static final int OS_PAGE_SIZE = 1024 * 4;
     public static final Unsafe UNSAFE = getUnsafe();
     private static final Method IS_LOADED_METHOD;
@@ -66,8 +68,10 @@ public class DefaultMappedFile extends AbstractMappedFile {
 
     protected static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    //当前JVM实例中MappedFile虚拟内存
     protected static final AtomicLong TOTAL_MAPPED_VIRTUAL_MEMORY = new AtomicLong(0);
 
+    //当前JVM实例中MappedFile对象个数
     protected static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
 
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> WROTE_POSITION_UPDATER;
@@ -78,15 +82,21 @@ public class DefaultMappedFile extends AbstractMappedFile {
     protected volatile int committedPosition;
     protected volatile int flushedPosition;
     protected int fileSize;
+    //文件通道
     protected FileChannel fileChannel;
     /**
      * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
      */
+    //堆外内存ByteBuffer
     protected ByteBuffer writeBuffer = null;
+
+    //堆外内存池
     protected TransientStorePool transientStorePool = null;
     protected String fileName;
     protected long fileFromOffset;
     protected File file;
+
+    //物理文件对应的内存映射Buffer
     protected MappedByteBuffer mappedByteBuffer;
     protected volatile long storeTimestamp = 0;
     protected boolean firstCreateInQueue = false;
@@ -362,24 +372,29 @@ public class DefaultMappedFile extends AbstractMappedFile {
      */
     @Override
     public int flush(final int flushLeastPages) {
+        //数据达到刷盘条件
         if (this.isAbleToFlush(flushLeastPages)) {
+            //加锁，同步刷盘
             if (this.hold()) {
+                //获得读指针
                 int value = getReadPosition();
 
                 try {
                     this.mappedByteBufferAccessCountSinceLastSwap++;
 
                     //We only append data to fileChannel or mappedByteBuffer, never both.
+                    //数据从writeBuffer提交数据到fileChannel再刷新到磁盘
                     if (writeBuffer != null || this.fileChannel.position() != 0) {
                         this.fileChannel.force(false);
                     } else {
+                        //从mmap刷新数据到磁盘
                         this.mappedByteBuffer.force();
                     }
                     this.lastFlushTime = System.currentTimeMillis();
                 } catch (Throwable e) {
                     log.error("Error occurred when force data to disk.", e);
                 }
-
+                //更新刷盘位置
                 FLUSHED_POSITION_UPDATER.set(this, value);
                 this.release();
             } else {
@@ -419,16 +434,24 @@ public class DefaultMappedFile extends AbstractMappedFile {
     }
 
     protected void commit0() {
+        //写指针
         int writePos = WROTE_POSITION_UPDATER.get(this);
+        //上次提交指针
         int lastCommittedPosition = COMMITTED_POSITION_UPDATER.get(this);
 
         if (writePos - lastCommittedPosition > 0) {
             try {
+                //复制共享内存区域
                 ByteBuffer byteBuffer = writeBuffer.slice();
+                //设置提交位置是上次提交位置
                 byteBuffer.position(lastCommittedPosition);
+                //最大提交数量
                 byteBuffer.limit(writePos);
+                //设置fileChannel位置为上次提交位置
                 this.fileChannel.position(lastCommittedPosition);
+                //将lastCommittedPosition到writePos的数据复制到FileChannel中
                 this.fileChannel.write(byteBuffer);
+                //重置提交位置
                 COMMITTED_POSITION_UPDATER.set(this, writePos);
             } catch (Throwable e) {
                 log.error("Error occurred when commit data to FileChannel.", e);
