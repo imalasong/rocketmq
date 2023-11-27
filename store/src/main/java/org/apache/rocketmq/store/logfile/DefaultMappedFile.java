@@ -534,6 +534,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
         if (pos < readPosition && pos >= 0) {
             if (this.hold()) {
                 this.mappedByteBufferAccessCountSinceLastSwap++;
+                //整个写入期间都未曾改MappedByteBuffer的指针，所以切片后返回的共享缓存区空间为整个MappedFile
                 ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
                 byteBuffer.position(pos);
                 int size = readPosition - pos;
